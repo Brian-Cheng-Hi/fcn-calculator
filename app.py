@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 import datetime
 
-# 設定網頁標題與排版佈局 (改為寬版)
+# 設定網頁標題與排版佈局 (寬版)
 st.set_page_config(page_title="FCN 持倉風險追蹤器 Pro", layout="wide")
 st.title("📈 FCN 持倉風險追蹤器 (進階視覺版)")
 st.write("手動輸入合約條件，系統將自動抓取即時股價、計算風險距離，並繪製走勢圖。")
@@ -44,21 +44,21 @@ if submitted:
             dist_to_ko = ((ko_price - current_price) / current_price) * 100
             dist_to_ki = ((current_price - ki_price) / current_price) * 100
             
-            # 合約狀態判定邏輯
-            status = "🟢 安全區間"
+            # 1. 用醒目橫幅完整顯示合約狀態（避免文字被截斷）
             if current_price >= ko_price:
-                status = "🎉 達標出場 (KO)"
+                st.success("🎉 目前狀態：【達標出場 (KO)】（股價已突破或達標出場價位）")
             elif current_price <= ki_price:
-                status = "🔴 已跌破接貨價 (KI)"
+                st.error("🔴 目前狀態：【已跌破接貨價 (KI)】（請留意履約承接風險）")
             elif dist_to_ki < 10:
-                status = "⚠️ 逼近接貨危險區"
+                st.warning("⚠️ 目前狀態：【逼近接貨危險區】（距接貨價已不足 10%）")
+            else:
+                st.info("🟢 目前狀態：【安全運行中】（介於 KO 與 KI 之間）")
             
-            # 顯示主要數據卡片 (4格)
-            m1, m2, m3, m4 = st.columns(4)
+            # 2. 顯示關鍵數據指標卡片 (改為 3 格，寬度充裕不擠壓)
+            m1, m2, m3 = st.columns(3)
             m1.metric("最新即時股價", f"${current_price:.2f}")
-            m2.metric("目前合約狀態", status)
-            m3.metric("距離 KO 還有", f"{dist_to_ko:.2f}%")
-            m4.metric("距離到期天數", f"{days_left} 天" if days_left >= 0 else "已到期")
+            m2.metric("距離 KO (出場)", f"{dist_to_ko:.2f}%")
+            m3.metric("合約剩餘天數", f"{days_left} 天" if days_left >= 0 else "已到期")
             
             st.write("---")
             st.write(f"**📈 近半年股價與合約價位走勢圖 ({ticker})**")
@@ -77,7 +77,7 @@ if submitted:
         except Exception as e:
             st.error("資料抓取失敗，請確認代碼是否正確（美股請直接輸入代碼）。")
 
-# === 新增：說明與注意事項區塊 ===
+# === 說明與注意事項區塊 ===
 st.write("---")
 with st.expander("ℹ️ 數據來源、名詞定義與注意事項 (點擊展開)"):
     st.markdown("""
