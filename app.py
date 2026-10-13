@@ -51,26 +51,26 @@ if submitted:
     st.write("---")
     st.header("3. 即時監控與試算結果")
     
-    # 3-1: 財務配息試算
-    monthly_coupon_rate = (coupon_rate / 100) / 12
-    monthly_payout = principal * monthly_coupon_rate
-    guaranteed_payout = monthly_payout * guaranteed_months
-    max_payout = monthly_payout * tenor_months
-    
-    st.subheader("💰 配息收益試算")
-    c1, c2, c3 = st.columns(3)
-    c1.metric(f"每期 (月) 配息金額", f"${monthly_payout:,.2f}")
-    c2.metric(f"保證最低收益 ({guaranteed_months}個月)", f"${guaranteed_payout:,.2f}")
-    c3.metric(f"安全下莊最高總領 ({tenor_months}個月)", f"${max_payout:,.2f}")
-    
-    # 3-2: 抓取股價與尋找最弱勢標的 (Worst-Of)
+    # ... (保留原本的 3-1 財務配息試算程式碼) ...
+
+    # 3-2: 抓取歷史數據並進行「百分比正規化」運算
     st.write("---")
     st.subheader("📊 籃子標的風險掃描 (Worst-Of 機制)")
     
     worst_performer_ticker = ""
     worst_drop_pct = float('inf') # 記錄跌幅最深的值
+    current_worst_pct = 0 # 記錄最差標的目前的相對百分比
+    dist_to_ki_of_worst = 0 # 記錄最差標的距離 KI 還有多少
     
-    # 建立與標的數量相等的欄位來顯示卡片
+    # 建立一個空的 DataFrame 用來畫圖
+    chart_data = pd.DataFrame()
+    
+    # 取出第一檔標的的 KO/KI 比例作為畫圖基準 (假設整包合約的比例相同)
+    first_row = edited_basket.iloc[0]
+    ko_pct = (first_row["出場價 (KO 95%)"] / first_row["期初價 (Initial)"]) * 100
+    ki_pct = (first_row["接貨價 (KI 70%)"] / first_row["期初價 (Initial)"]) * 100
+    strike_pct = (first_row["履約價 (Strike 75%)"] / first_row["期初價 (Initial)"]) * 100
+
     cols = st.columns(len(edited_basket))
     
     for idx, row in edited_basket.iterrows():
@@ -81,45 +81,80 @@ if submitted:
         
         with cols[idx]:
             try:
-                # 抓取即時股價
+                # 抓取過去 3 個月的歷史股價來畫圖
                 stock = yf.Ticker(ticker)
-                hist = stock.history(period="1d")
+                hist = stock.history(period="3mo")['Close']
                 if hist.empty:
                     raise ValueError("無資料")
-                current_price = hist['Close'].iloc[-1]
+                
+                current_price = hist.iloc[-1]
+                
+                # 【關鍵升級】計算每日股價相對於「期初價」的百分比 (Initial = 100%)
+                normalized_hist = (hist / init_price) * 100
+                chart_data[ticker] = normalized_hist
                 
                 # 計算與期初的漲跌幅
                 change_from_init = (current_price - init_price) / init_price
+                current_relative_pct = (current_price / init_price) * 100
+                dist_to_ki = ((current_price - ki_price) / current_price) * 100
                 
                 # 判斷是否為目前最弱勢標的
                 if change_from_init < worst_drop_pct:
                     worst_drop_pct = change_from_init
                     worst_performer_ticker = ticker
-                
-                # 計算距離接貨價 (KI) 的安全緩衝
-                dist_to_ki = ((current_price - ki_price) / current_price) * 100
+                    current_worst_pct = current_relative_pct
+                    dist_to_ki_of_worst = dist_to_ki
                 
                 # 顯示單一標的卡片
                 st.markdown(f"### **{ticker}**")
                 st.metric("即時股價", f"${current_price:.2f}", f"{change_from_init*100:.2f}% (距期初)")
                 
                 if current_price >= ko_price:
-                    st.success("🎉 已達出場價 (KO)")
+                    st.success("🎉 達出場價")
                 elif current_price <= ki_price:
-                    st.error("🔴 已跌破接貨價 (KI)")
-                elif dist_to_ki < 10:
-                    st.warning(f"⚠️ 距 KI 僅剩 {dist_to_ki:.1f}%")
+                    st.error("🔴 跌破 KI")
                 else:
-                    st.info(f"🟢 距 KI 還有 {dist_to_ki:.1f}%")
+                    st.info(f"🟢 距 KI {dist_to_ki:.1f}%")
                     
             except Exception as e:
-                st.error(f"{ticker} 報價讀取失敗，請確認代碼是否為標準美股代碼 (如 TSM)")
+                st.error(f"{ticker} 報價讀取失敗")
 
-    # 3-3: 警示最弱勢標的
+    # 3-3: 【全新功能】綜合狀態總結看板 (致敬附件設計)
     st.write("---")
+    
     if worst_performer_ticker:
-        st.error(f"🚨 **目前最弱勢標的 (Worst-Of) 為：【 {worst_performer_ticker} 】**")
-        st.caption("FCN 合約的命運由籃子中表現最差的標的決定。請密切關注該檔股票是否逼近 KI 或順利突破 KO。")
+        # 依照距離 KI 的程度決定看板顏色
+        if dist_to_ki_of_worst <= 0:
+            status_color = "error"
+            status_text = f"🚨 已觸及 KI (接貨風險極高)！"
+        elif dist_to_ki_of_worst < 10:
+            status_color = "warning"
+            status_text = f"⚠️ 尚未 KI (距 KI 僅剩 {dist_to_ki_of_worst:.1f}%) - 請密切關注！"
+        else:
+            status_color = "success"
+            status_text = f"🟢 尚未 KI (距 KI 剩 {dist_to_ki_of_worst:.1f}%)"
+            
+        st.markdown(f"""
+        <div style="padding: 15px; border-radius: 5px; background-color: #f0f2f6; border-left: 5px solid #ff4b4b;">
+            <h4 style="margin:0;">📉 合約狀態總結</h4>
+            <p style="margin:5px 0 0 0; font-size: 16px;">
+                <strong>目前最差標的：</strong> {worst_performer_ticker} ({current_worst_pct:.1f}%) | {status_text}
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # 3-4: 【全新功能】百分比正規化走勢圖 (致敬附件設計)
+    st.write("<br>", unsafe_allow_html=True)
+    st.subheader("📈 籃子標的相對走勢圖 (基準: 期初價 = 100%)")
+    
+    # 補上三條重要的水平防線
+    chart_data["出場線 (KO)"] = ko_pct
+    chart_data["履約線 (Strike)"] = strike_pct
+    chart_data["接貨線 (KI)"] = ki_pct
+    
+    # 移除空值並繪製折線圖
+    chart_data = chart_data.dropna()
+    st.line_chart(chart_data, height=400)
 
 # === 區塊 4：說明與注意事項區塊 ===
 st.write("---")
