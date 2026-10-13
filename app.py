@@ -31,12 +31,23 @@ if "form_data" not in st.session_state:
 with st.expander("🪄 懶人包：貼上 AI 產生的 JSON 自動填表 (點擊展開)", expanded=True):
     st.markdown("""
     **使用步驟：**
-    1. 將委託書照片傳給 ChatGPT 或 Gemini。
-    2. 附上通關密語（Prompt）要求輸出 JSON。
-    3. 將產生的 JSON 完整貼在下方框內，點擊載入！
+    1. 點擊下方黑框右上角的「複製」按鈕，複製通關密語 (Prompt)。
+    2. 將委託書照片傳給 ChatGPT 或 Gemini，並貼上剛剛複製的密語。
+    3. 將 AI 產生的 JSON 完整貼在最下方的白框內，點擊載入！
+    
+    **👇 請複製以下通關密語：**
     """)
     
-    json_input = st.text_area("請在此貼上 AI 產出的 JSON 程式碼：", height=150)
+    # 內建神級 Prompt，st.code 會自動提供複製按鈕
+    ai_prompt = """你是一位華爾街結算專家。請閱讀我上傳的 FCN 委託書照片，並將合約條件萃取出來。嚴格只能輸出純 JSON 格式，不要加上 Markdown 標記或任何廢話。數字去除千分位，百分比轉為純數字。
+
+JSON 格式範本：
+{"coupon_rate": 22.07, "tenor_months": 3, "guaranteed_months": 1, "basket": [{"ticker": "NVDA", "initial": 228.38, "ko": 216.96, "strike": 171.28, "ki": 159.86}]}"""
+    
+    st.code(ai_prompt, language="text")
+    
+    st.markdown("**👇 貼上 AI 產出的結果：**")
+    json_input = st.text_area("請在此貼上 JSON 程式碼：", height=150, label_visibility="collapsed")
     
     if st.button("✨ 一鍵載入合約資料"):
         if json_input:
