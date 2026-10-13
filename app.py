@@ -130,7 +130,7 @@ JSON 格式範本：
     if st.button("✨ 一鍵載入新合約資料"):
         if json_input:
             try:
-                clean_json = json_input.replace('\\_', '_').replace('\\[', '[').replace('\\]', ']')
+                clean_json = json_input.replace('\\_', '_').replace('[', '[').replace(']', ']')
                 ai_data = json.loads(clean_json)
                 
                 new_basket = pd.DataFrame(ai_data["basket"])
@@ -213,6 +213,8 @@ if submitted:
     ki_pct = (first_row["接貨價 (KI 70%)"] / first_row["期初價 (Initial)"]) * 100
     strike_pct = (first_row["履約價 (Strike 75%)"] / first_row["期初價 (Initial)"]) * 100
 
+    is_all_ko = True # 預設為全數 KO，只要有一檔沒達標就改為 False
+
     cols = st.columns(len(edited_basket))
     for idx, row in edited_basket.iterrows():
         ticker = row["股票代碼 (Ticker)"]
@@ -235,6 +237,10 @@ if submitted:
                 current_relative_pct = (current_price / init_price) * 100
                 dist_to_ki = ((current_price - ki_price) / current_price) * 100
                 
+                # 只要有一檔股價小於 KO 價，全數 KO 條件就不成立
+                if current_price < ko_price:
+                    is_all_ko = False
+                
                 if change_from_init < worst_drop_pct:
                     worst_drop_pct = change_from_init
                     worst_performer_ticker = ticker
@@ -254,23 +260,32 @@ if submitted:
             except Exception as e:
                 st.error(f"{ticker} 報價讀取失敗")
 
+    # 3-3: 綜合狀態總結與 KO 結算看板
     st.write("---")
     if worst_performer_ticker:
-        if dist_to_ki_of_worst <= 0:
-            status_color = "#ff4b4b"
-            status_text = f"🚨 已觸及 KI (接貨風險極高)！"
-        elif dist_to_ki_of_worst < 10:
-            status_color = "#ffcc00"
-            status_text = f"⚠️ 尚未 KI (距 KI 僅剩 {dist_to_ki_of_worst:.1f}%) - 請密切關注！"
+        # 優先判斷是否全面 KO
+        if is_all_ko:
+            status_color = "#00cc66" # 綠色
+            ko_payout = principal + monthly_payout
+            status_title = "🎉 恭喜！達標提早出場 (KO)"
+            status_text = f"所有標的皆已突破 KO 價！若今日為結算比價日，您將拿回本金與當期配息，共計：<strong>${ko_payout:,.2f}</strong>"
         else:
-            status_color = "#00cc66"
-            status_text = f"🟢 尚未 KI (距 KI 剩 {dist_to_ki_of_worst:.1f}%)"
+            status_title = "📉 合約狀態總結"
+            if dist_to_ki_of_worst <= 0:
+                status_color = "#ff4b4b" # 紅色
+                status_text = f"<strong>目前最差標的：</strong> {worst_performer_ticker} ({current_worst_pct:.1f}%) | 🚨 已觸及 KI (接貨風險極高)！"
+            elif dist_to_ki_of_worst < 10:
+                status_color = "#ffcc00" # 黃色
+                status_text = f"<strong>目前最差標的：</strong> {worst_performer_ticker} ({current_worst_pct:.1f}%) | ⚠️ 尚未 KI (距 KI 僅剩 {dist_to_ki_of_worst:.1f}%) - 請密切關注！"
+            else:
+                status_color = "#1f77b4" # 藍色 (安全)
+                status_text = f"<strong>目前最差標的：</strong> {worst_performer_ticker} ({current_worst_pct:.1f}%) | 🟢 尚未 KI (距 KI 剩 {dist_to_ki_of_worst:.1f}%)"
             
         st.markdown(f"""
         <div style="padding: 15px; border-radius: 5px; background-color: #f0f2f6; border-left: 5px solid {status_color};">
-            <h4 style="margin:0;">📉 合約狀態總結</h4>
+            <h4 style="margin:0;">{status_title}</h4>
             <p style="margin:5px 0 0 0; font-size: 16px;">
-                <strong>目前最差標的：</strong> {worst_performer_ticker} ({current_worst_pct:.1f}%) | {status_text}
+                {status_text}
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -282,3 +297,30 @@ if submitted:
     chart_data["接貨線 (KI)"] = ki_pct
     chart_data = chart_data.dropna()
     st.line_chart(chart_data, height=400)
+
+# ==========================================
+# 區塊 4：說明與注意事項
+# ==========================================
+st.write("---")
+with st.expander("ℹ️ 數據來源、名詞定義與注意事項 (點擊展開)"):
+    st.markdown("""
+    ### 🔍 數據來源
+    * **報價來源**：本系統使用 Yahoo Finance 公開 API 抓取歷史與即時股價資料。
+    * **時間落差**：美股盤中可能有約 15 分鐘延遲；若於台灣時間白天觀看，所顯示之即時股價為「前一交易日收盤價」或「盤後價格」。
+
+    ### 📖 資料定義 (合約機制)
+    * **期初價 (Initial Price)**：合約生效時各標的的基準價格。系統將以最新股價與此價格對比，計算漲跌幅以找出最弱勢標的。
+    * **出場價 (KO / Knock-Out)**：若所有標的股價皆大於或等於此價位，合約將提前結算出場。
+    * **接貨價 (KI / Knock-In)**：安全底線。若最弱勢標的跌破此價位，合約保護機制失效，投資人將面臨以「履約價」買入該弱勢股票的風險。
+    * **履約價 (Strike)**：若發生接貨事件（跌破 KI）且直到到期日都未能漲回，投資人必須以此價格買入表現最差的那檔股票。
+    * **最弱勢標的 (Worst-Of)**：一籃子 FCN 的核心機制。合約的提早出場 (KO) 或接貨 (KI) 命運，完全取決於籃子中「表現最差（跌幅最深或漲幅最小）」的那一檔標的。
+
+    ### 💰 資料定義 (配息與收益)
+    * **年化配息率 (Coupon Rate)**：計算每期固定收益的基準。本系統依據 `(本金 × 年化配息率) ÷ 12` 來估算每月配息金額。
+    * **保息期數 (Guaranteed Months)**：發行商保證給付的配息期數。即使合約在第一個月就達標出場 (KO)，投資人仍可安全領滿此期數之總配息。
+
+    ### ⚠️ 注意事項
+    * **非正式對帳單**：本工具僅供個人輔助追蹤與試算參考，非金融機構之正式對帳單。
+    * **合約條款差異**：實際合約的 KO/KI 判定標準（如：每日收盤觀察或盤中觸價觀察）、以及配息計算之計息天數（Day Count Convention）可能因各家銀行與發行商而異，請以您的實際委託書條款為準。
+    * **免責聲明**：本系統不提供任何投資建議，亦不保證資料之絕對精準度，投資決策與盈虧責任由使用者自行承擔。
+    """)
