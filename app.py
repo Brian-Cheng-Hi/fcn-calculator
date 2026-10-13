@@ -52,7 +52,9 @@ JSON 格式範本：
     if st.button("✨ 一鍵載入合約資料"):
         if json_input:
             try:
-                ai_data = json.loads(json_input)
+                # 自動清除 ChatGPT 亂加的 Markdown 反斜線
+                clean_json = json_input.replace('\\_', '_').replace('\\[', '[').replace('\\]', ']')
+                ai_data = json.loads(clean_json)
                 
                 new_basket = pd.DataFrame(ai_data["basket"])
                 new_basket.columns = ["股票代碼 (Ticker)", "期初價 (Initial)", "出場價 (KO 95%)", "履約價 (Strike 75%)", "接貨價 (KI 70%)"]
