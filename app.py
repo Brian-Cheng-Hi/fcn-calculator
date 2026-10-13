@@ -199,6 +199,45 @@ if submitted:
     c2.metric(f"保證最低收益 ({guaranteed_months}個月)", f"${guaranteed_payout:,.2f}")
     c3.metric(f"安全下莊最高總領 ({tenor_months}個月)", f"${max_payout:,.2f}")
     
+    # --- 新增：現金流預估明細表 ---
+    st.write("<br>", unsafe_allow_html=True)
+    with st.expander("📅 查看詳細現金流預估表 (Cash Flow Schedule)", expanded=False):
+        schedule_data = []
+        acc_payout = 0
+        
+        # 產生每一期的配息資料
+        for m in range(1, tenor_months + 1):
+            acc_payout += monthly_payout
+            status = "🔒 保證配息" if m <= guaranteed_months else "⏳ 條件配息 (未 KO 則配發)"
+            schedule_data.append({
+                "期數 (Month)": f"第 {m} 個月",
+                "現金流項目": status,
+                "當期入帳金額": monthly_payout,
+                "累計總配息收益": acc_payout
+            })
+            
+        # 加入最後的本金返還 (預設未發生 KI 接貨)
+        schedule_data.append({
+            "期數 (Month)": "合約結算 (KO 或 到期)",
+            "現金流項目": "💰 返還本金 (若無接貨)",
+            "當期入帳金額": principal,
+            "累計總配息收益": acc_payout # 本金不計入配息收益
+        })
+        
+        df_schedule = pd.DataFrame(schedule_data)
+        
+        # 顯示格式化表格
+        st.dataframe(
+            df_schedule,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "當期入帳金額": st.column_config.NumberColumn("當期入帳金額", format="$ %.2f"),
+                "累計總配息收益": st.column_config.NumberColumn("累計總配息收益", format="$ %.2f")
+            }
+        )
+    # ------------------------------
+
     st.write("---")
     st.subheader("📊 籃子標的風險掃描 (Worst-Of 機制)")
     
