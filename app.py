@@ -296,7 +296,32 @@ if submitted:
     chart_data["履約線 (Strike)"] = strike_pct
     chart_data["接貨線 (KI)"] = ki_pct
     chart_data = chart_data.dropna()
-    st.line_chart(chart_data, height=400)
+    
+    # === 新增：使用 Altair 繪製防誤觸的靜態圖表 ===
+    import altair as alt
+    
+    # 1. 確保時間格式乾淨並移除時區 (避免 Altair 報錯)
+    chart_data.index = pd.to_datetime(chart_data.index)
+    if chart_data.index.tz is not None:
+        chart_data.index = chart_data.index.tz_localize(None)
+    chart_data.index.name = 'Date'
+
+    # 2. 將寬資料表轉為 Altair 需要的「長格式 (Long format)」
+    df_melted = chart_data.reset_index().melt('Date', var_name='標的/基準線', value_name='價格比例 (%)')
+
+    # 3. 繪製圖表 (重點：保留 tooltip 游標提示，但不開啟 .interactive() 縮放功能)
+    chart = alt.Chart(df_melted).mark_line().encode(
+        x=alt.X('Date:T', title='日期'),
+        y=alt.Y('價格比例 (%):Q', title='相對比例 (%)', scale=alt.Scale(zero=False)),
+        color=alt.Color('標的/基準線:N', title='圖例'),
+        tooltip=[
+            alt.Tooltip('Date:T', title='日期', format='%Y-%m-%d'),
+            alt.Tooltip('標的/基準線:N', title='標的'),
+            alt.Tooltip('價格比例 (%):Q', title='比例 (%)', format='.1f')
+        ]
+    ).properties(height=400)
+
+    st.altair_chart(chart, use_container_width=True)
 
 # ==========================================
 # 區塊 4：說明與注意事項
