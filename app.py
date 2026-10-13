@@ -199,13 +199,11 @@ if submitted:
     c2.metric(f"保證最低收益 ({guaranteed_months}個月)", f"${guaranteed_payout:,.2f}")
     c3.metric(f"安全下莊最高總領 ({tenor_months}個月)", f"${max_payout:,.2f}")
     
-    # --- 新增：現金流預估明細表 ---
+    # --- 現金流預估明細表 (展開) ---
     st.write("<br>", unsafe_allow_html=True)
-    with st.expander("📅 查看詳細現金流預估表 (Cash Flow Schedule)", expanded=False):
+    with st.expander("📅 查看詳細現金流預估表 (假設不發生 KO 的一般情境)", expanded=False):
         schedule_data = []
         acc_payout = 0
-        
-        # 產生每一期的配息資料
         for m in range(1, tenor_months + 1):
             acc_payout += monthly_payout
             status = "🔒 保證配息" if m <= guaranteed_months else "⏳ 條件配息 (未 KO 則配發)"
@@ -215,26 +213,17 @@ if submitted:
                 "當期入帳金額": monthly_payout,
                 "累計總配息收益": acc_payout
             })
-            
-        # 加入最後的本金返還 (預設未發生 KI 接貨)
         schedule_data.append({
-            "期數 (Month)": "合約結算 (KO 或 到期)",
+            "期數 (Month)": "合約到期",
             "現金流項目": "💰 返還本金 (若無接貨)",
             "當期入帳金額": principal,
-            "累計總配息收益": acc_payout # 本金不計入配息收益
+            "累計總配息收益": acc_payout
         })
-        
-        df_schedule = pd.DataFrame(schedule_data)
-        
-        # 顯示格式化表格
         st.dataframe(
-            df_schedule,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "當期入帳金額": st.column_config.NumberColumn("當期入帳金額", format="$ %.2f"),
-                "累計總配息收益": st.column_config.NumberColumn("累計總配息收益", format="$ %.2f")
-            }
+            pd.DataFrame(schedule_data),
+            use_container_width=True, hide_index=True,
+            column_config={"當期入帳金額": st.column_config.NumberColumn("當期入帳金額", format="$ %.2f"),
+                           "累計總配息收益": st.column_config.NumberColumn("累計總配息收益", format="$ %.2f")}
         )
     # ------------------------------
 
@@ -299,15 +288,57 @@ if submitted:
             except Exception as e:
                 st.error(f"{ticker} 報價讀取失敗")
 
-    # 3-3: 綜合狀態總結與 KO 結算看板
+    # 3-3: 綜合狀態總結與 KO 動態情境試算表
     st.write("---")
     if worst_performer_ticker:
         # 優先判斷是否全面 KO
         if is_all_ko:
             status_color = "#00cc66" # 綠色
-            ko_payout = principal + monthly_payout
             status_title = "🎉 恭喜！達標提早出場 (KO)"
-            status_text = f"所有標的皆已突破 KO 價！若今日為結算比價日，您將拿回本金與當期配息，共計：<strong>${ko_payout:,.2f}</strong>"
+            status_text = "所有標的皆已突破 KO 價！系統已自動排除閉鎖期，為您展開提早出場的現金流試算："
+            
+            st.markdown(f"""
+            <div style="padding: 15px; border-radius: 5px; background-color: #f0f2f6; border-left: 5px solid {status_color}; margin-bottom: 15px;">
+                <h4 style="margin:0;">{status_title}</h4>
+                <p style="margin:5px 0 0 0; font-size: 16px;">
+                    {status_text}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # --- 建立動態 KO 情境對照表 ---
+            ko_scenarios = []
+            
+            # 自動從「保息期滿」的月份開始算，因為閉鎖期內不 KO
+            start_month = max(1, guaranteed_months)
+            
+            for m in range(start_month, tenor_months + 1):
+                acc_payout = monthly_payout * m
+                total_return = principal + acc_payout
+                
+                if m == tenor_months:
+                    period_name = f"第 {m} 期 (期滿到期)"
+                elif m == guaranteed_months:
+                    period_name = f"第 {m} 期 (閉鎖期滿 / 首次比價)"
+                else:
+                    period_name = f"第 {m} 期 評價日"
+                    
+                ko_scenarios.append({
+                    "若今日為...": period_name,
+                    "結算明細 (返還本金 + 累計配息)": f"本金 {principal:,.0f} + 累計配息 {acc_payout:,.0f}",
+                    "總共可領回總額": total_return
+                })
+            
+            # 顯示精美的 KO 情境表
+            st.dataframe(
+                pd.DataFrame(ko_scenarios),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "總共可領回總額": st.column_config.NumberColumn("總共可領回總額", format="$ %.2f")
+                }
+            )
+            
         else:
             status_title = "📉 合約狀態總結"
             if dist_to_ki_of_worst <= 0:
@@ -320,14 +351,14 @@ if submitted:
                 status_color = "#1f77b4" # 藍色 (安全)
                 status_text = f"<strong>目前最差標的：</strong> {worst_performer_ticker} ({current_worst_pct:.1f}%) | 🟢 尚未 KI (距 KI 剩 {dist_to_ki_of_worst:.1f}%)"
             
-        st.markdown(f"""
-        <div style="padding: 15px; border-radius: 5px; background-color: #f0f2f6; border-left: 5px solid {status_color};">
-            <h4 style="margin:0;">{status_title}</h4>
-            <p style="margin:5px 0 0 0; font-size: 16px;">
-                {status_text}
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div style="padding: 15px; border-radius: 5px; background-color: #f0f2f6; border-left: 5px solid {status_color};">
+                <h4 style="margin:0;">{status_title}</h4>
+                <p style="margin:5px 0 0 0; font-size: 16px;">
+                    {status_text}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
 
     st.write("<br>", unsafe_allow_html=True)
     st.subheader("📈 籃子標的相對走勢圖 (基準: 期初價 = 100%)")
