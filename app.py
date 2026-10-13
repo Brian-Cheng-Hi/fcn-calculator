@@ -21,7 +21,9 @@ try:
     # 連線到指定的 Google Sheet
     sheet = client.open_by_url(st.secrets["SHEET_URL"]).sheet1
 except Exception as e:
-    st.error("⚠️ 資料庫連線失敗，請檢查 Streamlit Secrets 設定是否正確。")
+    st.error(f"⚠️ 資料庫連線失敗，詳細錯誤原因：{e}")
+    st.write("如果錯誤包含 'API' 或 'Permission'，代表 Google 端權限未開通。")
+    st.write("如果錯誤包含 'JSON' 或 'Decode'，代表 Secrets 的金鑰格式貼錯了。")
     st.stop()
 
 @st.cache_data(ttl=300) # 暫存資料5分鐘，加快網頁載入速度
